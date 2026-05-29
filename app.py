@@ -65,7 +65,8 @@ HEAD = """
  .nav .logo{height:26px;width:auto;display:block}
  .brand{font-weight:500;font-size:.95rem;letter-spacing:-.01em;color:var(--muted)}
  .nav .pill{margin-left:auto;font-size:.72rem;color:var(--muted);background:var(--bg);
-   border:1px solid var(--line);border-radius:999px;padding:5px 12px}
+   border:1px solid var(--line);border-radius:999px;padding:5px 12px;text-decoration:none;transition:.15s}
+ .nav a.pill:hover{border-color:var(--coral);color:var(--coral-dark)}
  .hero{position:relative;text-align:center;padding:72px 0 64px;color:var(--white);
    border-bottom:1px solid var(--line);
    background:linear-gradient(rgba(31,30,30,.42),rgba(31,30,30,.58)),
@@ -176,7 +177,7 @@ HEAD = """
 <div class="nav"><div class="wrap">
   <img class="logo" src="/static/fullstar.svg" alt="Fullstar">
   <span class="brand">Recipe Studio</span>
-  <span class="pill">powered by Epicure embeddings</span>
+  <a class="pill" href="https://arxiv.org/html/2605.22391v1" target="_blank" rel="noopener noreferrer">powered by Epicure embeddings</a>
 </div></div>
 
 <div class="hero"><div class="wrap">
