@@ -27,6 +27,7 @@ import json
 import os
 import re
 import ssl as ssl_lib
+from datetime import datetime, timezone
 
 import pymysql
 from pymysql.cursors import DictCursor
@@ -73,7 +74,7 @@ def _connect():
 
 
 def init_db():
-    """Create the recipes table if it does not exist."""
+    """Create the recipes and events tables if they do not exist."""
     global _initialized
     conn = _connect()
     try:
@@ -86,6 +87,15 @@ def init_db():
                      author_email VARCHAR(255) NOT NULL,
                      title        VARCHAR(255) NOT NULL,
                      recipe_json  LONGTEXT     NOT NULL
+                   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS events(
+                     id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+                     created_at DATETIME    NOT NULL,
+                     kind       VARCHAR(64) NOT NULL,
+                     path       VARCHAR(255) NULL,
+                     KEY idx_kind (kind),
+                     KEY idx_created (created_at)
                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
     finally:
         conn.close()
@@ -103,7 +113,6 @@ def valid_email(email):
 
 def save_recipe(author_name, author_email, title, recipe):
     """Persist one recipe; returns the new row id."""
-    from datetime import datetime, timezone
     _ensure_init()
     created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     conn = _connect()
@@ -167,3 +176,50 @@ def list_recipes(page=1, per_page=50, author_email=None):
         r["id"] = row["id"]
         out.append(r)
     return out
+
+
+# --- Usage tracking --------------------------------------------------------
+def log_event(kind, path=None):
+    """Record a tracking event (e.g. 'visitor', 'pageview', 'recipe_generated',
+    'recipe_saved'). Timestamps are stored in UTC."""
+    _ensure_init()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO events(created_at,kind,path) VALUES(%s,%s,%s)",
+                        (now, kind, path))
+    finally:
+        conn.close()
+
+
+def stats_summary(top_paths=10):
+    """Return (by_kind, top_paths).
+
+    by_kind maps each event kind -> {'total', 'today', 'week'} counts (today and
+    week are relative to UTC). top_paths is a list of (path, views) for the most
+    visited pages.
+    """
+    _ensure_init()
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT kind,
+                          COUNT(*) AS total,
+                          SUM(created_at >= UTC_DATE()) AS today,
+                          SUM(created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY) AS week
+                     FROM events GROUP BY kind""")
+            by_kind = {r["kind"]: {"total": int(r["total"]),
+                                   "today": int(r["today"] or 0),
+                                   "week": int(r["week"] or 0)}
+                       for r in cur.fetchall()}
+            cur.execute(
+                """SELECT path, COUNT(*) AS n FROM events
+                    WHERE kind='pageview' AND path IS NOT NULL
+                    GROUP BY path ORDER BY n DESC LIMIT %s""",
+                (top_paths,))
+            paths = [(r["path"], int(r["n"])) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    return by_kind, paths

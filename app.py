@@ -14,16 +14,19 @@ A JSON API (``/api/recipe``) exposes the same steering surface.
     ./venv/bin/python app.py      # -> http://127.0.0.1:5001
                                   # (5000 is taken by macOS AirPlay Receiver)
 """
+import hmac
 import os
 
-from flask import (Flask, jsonify, redirect, render_template_string, request,
-                   session, url_for)
+from flask import (Flask, Response, jsonify, redirect, render_template_string,
+                   request, session, url_for)
 
 import chopper_recipes as cr
 import db
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-fullstar-not-secret")
+# Password for the /stats dashboard (override via the STATS_PASSWORD env var).
+STATS_PASSWORD = os.environ.get("STATS_PASSWORD", "123Fullstar$")
 
 print("Loading Epicure (core)...")
 MODEL = cr.get_model("core")
@@ -173,6 +176,13 @@ HEAD = """
  .cta:hover{background:var(--coral-dark)}
  .cta-note{display:block;margin-top:8px;color:var(--muted);font-size:.78rem}
  .terms-date{color:var(--muted);font-size:.8rem;margin-top:18px}
+ .stats-table{width:100%;border-collapse:collapse;margin:10px 0 4px;font-size:.95rem}
+ .stats-table th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
+   color:var(--muted);border-bottom:1.5px solid var(--line);padding:8px 10px;font-weight:700}
+ .stats-table td{padding:9px 10px;border-bottom:1px solid var(--line)}
+ .stats-table tbody tr:last-child td{border-bottom:none}
+ .stats-table th:not(:first-child),.stats-table td:not(:first-child){text-align:right;
+   font-variant-numeric:tabular-nums}
  .sitefoot{border-top:1px solid var(--line);background:var(--white);margin-top:14px}
  .sitefoot .wrap{padding:22px 20px;color:var(--muted);font-size:.78rem;line-height:1.5;
    display:flex;gap:6px 14px;flex-wrap:wrap;align-items:baseline;justify-content:center;text-align:center}
@@ -481,6 +491,33 @@ TERMS_BODY = """
 </div>
 """
 
+# --- /stats dashboard (password-protected) ---------------------------------
+STATS_BODY = """
+<div class="panel about">
+  <h2>Studio stats</h2>
+  <p class="lede">Private usage analytics for the Fullstar Recipe Studio.</p>
+  <table class="stats-table">
+    <thead><tr><th>Metric</th><th>Total</th><th>Today</th><th>Last 7 days</th></tr></thead>
+    <tbody>
+    {% for label, m in metrics %}
+      <tr><td>{{label}}</td><td>{{m.total}}</td><td>{{m.today}}</td><td>{{m.week}}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="terms-date">{{total_recipes}} recipe(s) saved in the book in total. Counts are UTC.</p>
+
+  <h3>Most viewed pages</h3>
+  {% if top_paths %}
+  <table class="stats-table">
+    <thead><tr><th>Page</th><th>Views</th></tr></thead>
+    <tbody>
+    {% for path, n in top_paths %}<tr><td>{{path}}</td><td>{{n}}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="empty">No page views recorded yet.</p>{% endif %}
+</div>
+"""
+
 TRUE = ("1", "true", "on")
 # Args that fully describe a generated recipe — carried as hidden fields on
 # the save form so the recipe can be regenerated server-side at save time.
@@ -560,9 +597,38 @@ def _design_context(args, *, save_error=None, author_name=None,
         author_name=author_name, author_email=author_email, save_title=save_title)
 
 
+# --- Usage tracking (best-effort; never breaks a page) ---------------------
+# Requests we never count as a page view: probes, the stats dashboard itself,
+# static assets and the JSON API (generations there are tracked explicitly).
+_NO_TRACK = ("/healthz", "/stats", "/favicon.ico")
+
+
+def _track(kind, path=None):
+    try:
+        db.log_event(kind, path)
+    except Exception:
+        pass  # tracking must never affect the user-facing response
+
+
+@app.before_request
+def _track_request():
+    if request.method != "GET":
+        return
+    p = request.path
+    if p in _NO_TRACK or p.startswith("/static") or p.startswith("/api"):
+        return
+    if not session.get("counted"):
+        session["counted"] = True
+        _track("visitor")          # unique-ish: one per browser session
+    _track("pageview", p)
+
+
 @app.route("/")
 def home():
-    return render_page("design", DESIGN_BODY, **_design_context(request.args))
+    ctx = _design_context(request.args)
+    if ctx["recipe"] is not None:
+        _track("recipe_generated", "/")
+    return render_page("design", DESIGN_BODY, **ctx)
 
 
 @app.route("/save", methods=["POST"])
@@ -593,6 +659,7 @@ def save():
     session["author_name"] = name
     session["author_email"] = email
     db.save_recipe(name, email, title, recipe)
+    _track("recipe_saved", "/save")
     return redirect(url_for("recipes", saved=1))
 
 
@@ -638,7 +705,30 @@ def api_recipe():
         return jsonify(error=error), 400
     if not recipe:
         return jsonify(error="missing ?seed="), 400
+    _track("recipe_generated", "/api/recipe")
     return jsonify(recipe)
+
+
+def _stats_authed():
+    auth = request.authorization
+    return bool(auth and auth.password
+                and hmac.compare_digest(auth.password, STATS_PASSWORD))
+
+
+@app.route("/stats")
+def stats():
+    if not _stats_authed():
+        return Response(
+            "Authentication required.", 401,
+            {"WWW-Authenticate": 'Basic realm="Fullstar stats", charset="UTF-8"'})
+    by_kind, top_paths = db.stats_summary()
+    blank = {"total": 0, "today": 0, "week": 0}
+    metrics = [("Unique visitors", by_kind.get("visitor", blank)),
+               ("Page views", by_kind.get("pageview", blank)),
+               ("Recipes generated", by_kind.get("recipe_generated", blank)),
+               ("Recipes saved", by_kind.get("recipe_saved", blank))]
+    return render_page("stats", STATS_BODY, metrics=metrics, top_paths=top_paths,
+                       total_recipes=db.count_recipes())
 
 
 if __name__ == "__main__":
