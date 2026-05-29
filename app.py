@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
 """Fullstar Recipe Studio — Flask UI over Epicure embeddings (arXiv:2605.22391).
 
-Loads the model(s) and serves a Fullstar-styled web UI plus a JSON API exposing
-the full steering surface: seed blending, sibling model, cuisine / flavor / aroma
-/ nutrition / processing / factor-mode steers, intensity, method, diet excludes.
+Loads the model(s) and serves a Fullstar-styled web UI with three tabs:
+
+  1. Design recipe  — steer the embeddings (seed blending, sibling model,
+     cuisine / flavor / aroma / nutrition / processing / factor-mode steers,
+     intensity, method, diet excludes) and save the result to a recipe book.
+  2. View recipes   — the saved recipe book, newest first, paginated to 50.
+  3. Fullstar tools — the Fullstar brand story and a link to buy the chopper.
+
+A JSON API (``/api/recipe``) exposes the same steering surface.
 
     ./venv/bin/python app.py      # -> http://127.0.0.1:5001
                                   # (5000 is taken by macOS AirPlay Receiver)
 """
-from flask import Flask, jsonify, render_template_string, request
+import os
+
+from flask import (Flask, jsonify, redirect, render_template_string, request,
+                   session, url_for)
 
 import chopper_recipes as cr
+import db
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-fullstar-not-secret")
 
 print("Loading Epicure (core)...")
 MODEL = cr.get_model("core")
@@ -24,9 +35,17 @@ FLAVORS = list(cr.FLAVOR_AXES)
 AROMAS = list(cr.AROMA_AXES)
 NUTRITION = list(cr.NUTRITION_AXES)
 PROCESSING = cr.PROCESSING
+try:
+    db.init_db()
+except Exception as e:  # MySQL may not be reachable yet; table is created lazily.
+    print(f"DB init deferred ({e.__class__.__name__}): table will be created on first use")
 print(f"Ready: {MODEL} | {len(VEG)} items, {len(CUISINES)} cuisines, {len(FACTORS)} factor modes")
 
-PAGE = """
+AMAZON_URL = "https://www.amazon.com/Vegetable-Chopper-Spiralizer-Slicer-Choppers/dp/B0764HS4SL"
+PER_PAGE = 50
+
+# --- Shared chrome: head/styles, top nav, hero banner, tab bar -------------
+HEAD = """
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Fullstar Recipe Studio</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -39,6 +58,7 @@ PAGE = """
  *{box-sizing:border-box}
  body{font-family:"DM Sans",system-ui,sans-serif;margin:0;background:var(--bg);color:var(--ink);
    -webkit-font-smoothing:antialiased;line-height:1.5}
+ a{color:inherit}
  .wrap{max-width:820px;margin:0 auto;padding:0 20px}
  .nav{background:var(--white);border-bottom:1px solid var(--line)}
  .nav .wrap{display:flex;align-items:center;gap:12px;height:62px}
@@ -57,6 +77,12 @@ PAGE = """
    text-shadow:0 1px 10px rgba(0,0,0,.4)}
  .trust{margin-top:14px;font-size:.76rem;color:rgba(255,255,255,.82);
    text-transform:uppercase;letter-spacing:.08em;text-shadow:0 1px 8px rgba(0,0,0,.4)}
+ .tabs{background:var(--white);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+ .tabs .wrap{display:flex;gap:4px}
+ .tabs a{padding:15px 18px;font-size:.9rem;font-weight:500;color:var(--muted);
+   text-decoration:none;border-bottom:3px solid transparent;margin-bottom:-1px;transition:.15s}
+ .tabs a:hover{color:var(--ink)}
+ .tabs a.active{color:var(--coral-dark);border-bottom-color:var(--coral);font-weight:700}
  .panel{background:var(--white);border:1px solid var(--line);border-radius:18px;
    padding:24px;margin:26px 0;box-shadow:0 6px 24px rgba(31,30,30,.05)}
  .sec{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
@@ -66,9 +92,9 @@ PAGE = """
  .field{flex:1;min-width:140px}
  label.lbl{display:block;font-size:.72rem;font-weight:500;text-transform:uppercase;
    letter-spacing:.05em;color:var(--muted);margin-bottom:6px}
- input[type=text],select{width:100%;padding:11px 13px;font:inherit;font-size:.95rem;color:var(--ink);
-   background:var(--bg);border:1.5px solid var(--line);border-radius:11px;outline:none;transition:.15s}
- input[type=text]:focus,select:focus{border-color:var(--coral);background:var(--white)}
+ input[type=text],input[type=email],select{width:100%;padding:11px 13px;font:inherit;font-size:.95rem;
+   color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:11px;outline:none;transition:.15s}
+ input[type=text]:focus,input[type=email]:focus,select:focus{border-color:var(--coral);background:var(--white)}
  input[type=range]{width:100%;accent-color:var(--coral)}
  .toggles{display:flex;gap:9px;flex-wrap:wrap;margin-top:4px}
  .chip{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
@@ -106,6 +132,35 @@ PAGE = """
  .steps{color:var(--muted);font-size:.96rem}
  .err{background:#fff0f0;border:1px solid var(--coral);color:var(--coral-dark);
    border-radius:12px;padding:14px 16px;margin-bottom:24px;font-size:.95rem}
+ .ok{background:#eafaf0;border:1px solid #57c98a;color:#1c7a47;border-radius:12px;
+   padding:14px 16px;margin:0 0 20px;font-size:.95rem;font-weight:500}
+ /* saved recipe book */
+ .saved{border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px;background:var(--white)}
+ .saved-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+ .saved-head h3{margin:0;font-size:1.18rem;letter-spacing:-.02em}
+ .saved-meta{color:var(--muted);font-size:.78rem;margin:4px 0 6px}
+ .empty{color:var(--muted);font-size:.95rem}
+ .empty a{color:var(--coral-dark);font-weight:700}
+ .pager{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:20px;font-size:.9rem}
+ .pager a{color:var(--coral-dark);text-decoration:none;font-weight:700;
+   border:1.5px solid var(--line);border-radius:10px;padding:8px 14px}
+ .pager a:hover{border-color:var(--coral)}
+ .pager .muted{color:var(--muted)}
+ /* about / fullstar tools */
+ .about h2{font-size:1.7rem;letter-spacing:-.02em;margin:0 0 6px}
+ .about .lede{color:var(--muted);font-size:1.08rem;margin:0 0 16px}
+ .about h3{font-size:.95rem;text-transform:uppercase;letter-spacing:.06em;color:var(--coral-dark);margin:24px 0 8px}
+ .about p{margin:0 0 12px;line-height:1.6}
+ .about ul{margin:0 0 12px;padding-left:20px}
+ .about li{margin:6px 0}
+ .stats{display:flex;gap:14px;flex-wrap:wrap;margin:18px 0 4px}
+ .stat{flex:1;min-width:130px;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px;text-align:center}
+ .stat b{display:block;font-size:1.5rem;color:var(--coral-dark)}
+ .stat span{font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+ .cta{display:inline-block;margin-top:10px;padding:14px 22px;background:var(--coral);color:#fff;
+   font-weight:700;border-radius:12px;text-decoration:none;transition:.15s}
+ .cta:hover{background:var(--coral-dark)}
+ .cta-note{display:block;margin-top:8px;color:var(--muted);font-size:.78rem}
 </style></head><body>
 
 <div class="nav"><div class="wrap">
@@ -119,8 +174,26 @@ PAGE = """
   <p>Chop a few ingredients, add a sauce, and cook. Pairings picked by a food-flavor AI &mdash; built for your vegetable chopper.</p>
   <div class="trust">Designed for real home cooks</div>
 </div></div>
+"""
 
-<div class="wrap">
+TAIL = "</body></html>"
+
+_TABS = [("design", "Design recipe", "/"),
+         ("recipes", "View recipes", "/recipes"),
+         ("about", "Fullstar tools", "/about")]
+
+
+def render_page(active, content, **ctx):
+    tabs = "".join(
+        f'<a class="{"active" if key == active else ""}" href="{href}">{label}</a>'
+        for key, label, href in _TABS)
+    tabbar = f'<div class="tabs"><div class="wrap">{tabs}</div></div>'
+    full = HEAD + tabbar + '<div class="wrap">' + content + "</div>" + TAIL
+    return render_template_string(full, **ctx)
+
+
+# --- Tab 1: Design recipe --------------------------------------------------
+DESIGN_BODY = """
 <form class="panel" method="get" action="/" id="f">
   <div class="sec">The basics</div>
   <div class="row">
@@ -151,21 +224,21 @@ PAGE = """
       <select name="cuisine"><option value="">Any</option>
       {% for c in cuisines %}<option value="{{c}}" {{'selected' if c==cuisine}}>{{c.split(':')[1].replace('_',' ')}}</option>{% endfor %}</select></div>
     <div class="field"><label class="lbl">Taste</label>
-      <select name="flavor"><option value="">—</option>
+      <select name="flavor"><option value="">&mdash;</option>
       {% for x in flavors %}<option value="{{x}}" {{'selected' if x==flavor}}>{{x}}</option>{% endfor %}</select></div>
     <div class="field"><label class="lbl">Aroma</label>
-      <select name="aroma"><option value="">—</option>
+      <select name="aroma"><option value="">&mdash;</option>
       {% for x in aromas %}<option value="{{x}}" {{'selected' if x==aroma}}>{{x}}</option>{% endfor %}</select></div>
   </div>
   <div class="row" style="margin-top:14px">
     <div class="field"><label class="lbl">Nutrition</label>
-      <select name="nutrition"><option value="">—</option>
+      <select name="nutrition"><option value="">&mdash;</option>
       {% for x in nutrition %}<option value="{{x}}" {{'selected' if x==nutrition_v}}>{{x}}</option>{% endfor %}</select></div>
     <div class="field"><label class="lbl">Processing</label>
-      <select name="processing"><option value="">—</option>
+      <select name="processing"><option value="">&mdash;</option>
       {% for x in processing %}<option value="{{x}}" {{'selected' if x==processing_v}}>{{x}}</option>{% endfor %}</select></div>
     <div class="field"><label class="lbl">Emergent factor mode</label>
-      <select name="factor"><option value="">—</option>
+      <select name="factor"><option value="">&mdash;</option>
       {% for mid,lab in factors %}<option value="factor:{{mid}}" {{'selected' if ('factor:'+mid)==factor}}>{{lab}}</option>{% endfor %}</select></div>
   </div>
   <div class="field" style="margin-top:16px">
@@ -211,8 +284,22 @@ PAGE = """
     <div class="line"><div class="k">Method</div><div class="v steps">{{recipe.steps}}</div></div>
   </div>
 </div>
+
+<form class="panel" method="post" action="/save">
+  <div class="sec">Save to your recipe book</div>
+  {% if save_error %}<div class="err">{{save_error}}</div>{% endif %}
+  <div class="row">
+    <div class="field"><label class="lbl" for="author_name">Your name</label>
+      <input type="text" id="author_name" name="author_name" value="{{author_name}}" placeholder="Jane Cook" required></div>
+    <div class="field"><label class="lbl" for="author_email">Your email</label>
+      <input type="email" id="author_email" name="author_email" value="{{author_email}}" placeholder="jane@example.com" required></div>
+  </div>
+  <div class="field" style="margin-top:14px"><label class="lbl" for="title">Recipe title</label>
+    <input type="text" id="title" name="title" value="{{save_title}}" required></div>
+  {% for k,v in gen_params.items() %}<input type="hidden" name="{{k}}" value="{{v}}">{% endfor %}
+  <div class="btnrow"><button class="btn" type="submit">Save recipe</button></div>
+</form>
 {% endif %}
-</div>
 
 <script>
 const VEG={{veg_sample|tojson}}, CUIS={{cuisines|tojson}}, FLAV={{flavors|tojson}};
@@ -229,10 +316,85 @@ function surprise(){
   f.submit();
 }
 </script>
-</body></html>
+"""
+
+# --- Tab 2: View recipes ---------------------------------------------------
+RECIPES_BODY = """
+<div class="panel">
+  <div class="sec">Recipe book{% if total %} &middot; {{total}} saved{% endif %}</div>
+  {% if saved %}<div class="ok">Recipe saved to the book. 🎉</div>{% endif %}
+  {% if total == 0 %}
+    <p class="empty">No recipes saved yet. Head to <a href="/">Design recipe</a> to create your first one.</p>
+  {% endif %}
+  {% for r in recipes %}
+  <article class="saved">
+    <div class="saved-head"><h3>{{r.title}}</h3><span class="badge">{{r.method}}</span></div>
+    <div class="saved-meta">by {{r.author_name}} &middot; {{r.created_at}}</div>
+    <div class="line"><div class="k">Chop</div><div class="v">{{r.ingredients|join(', ')}}</div></div>
+    {% if r.protein %}<div class="line"><div class="k">Protein</div><div class="v">{{r.protein}}</div></div>{% endif %}
+    {% if r.feculent %}<div class="line"><div class="k">Serve over</div><div class="v">{{r.feculent}}</div></div>{% endif %}
+    <div class="line"><div class="k">Sauce</div><div class="v"><span class="sauce">{{r.sauce}}</span> <span class="fit">fit {{r.fit}}</span></div></div>
+    <div class="line"><div class="k">Method</div><div class="v steps">{{r.steps}}</div></div>
+  </article>
+  {% endfor %}
+  {% if pages > 1 %}
+  <div class="pager">
+    {% if page > 1 %}<a href="/recipes?page={{page-1}}">&larr; Newer</a>{% endif %}
+    <span class="muted">Page {{page}} of {{pages}}</span>
+    {% if page < pages %}<a href="/recipes?page={{page+1}}">Older &rarr;</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+"""
+
+# --- Tab 3: Fullstar tools (brand story) -----------------------------------
+ABOUT_BODY = """
+<div class="panel about">
+  <h2>The Fullstar Story</h2>
+  <p class="lede">Cooking made simple — that's the idea this Recipe Studio is built around,
+    and it's the idea Fullstar has chased since day one.</p>
+
+  <p>Founded in the United States in 2015, Fullstar is a kitchenware brand on a mission to
+    revolutionize food preparation. Over the years the global Fullstar team has launched a
+    steady stream of innovations aimed at one goal: solving the everyday problems of the
+    kitchen so that cooking is faster, easier, and more enjoyable for everyone.</p>
+
+  <p>From vegetable choppers and mandoline slicers to cookware, food-storage solutions and
+    utensils, Fullstar empowers home cooks with high-quality tools that are thoughtfully
+    designed and genuinely useful. Its 4-in-1 Vegetable Chopper became a viral sensation,
+    with over a million units sold worldwide.</p>
+
+  <div class="stats">
+    <div class="stat"><b>2015</b><span>Founded in the USA</span></div>
+    <div class="stat"><b>10M+</b><span>Home cooks</span></div>
+    <div class="stat"><b>4.8&#9733;</b><span>Average rating</span></div>
+  </div>
+
+  <h3>Why a chopper pairs with this studio</h3>
+  <p>The Recipe Studio picks coherent ingredient pairings with a food-flavor AI; the chopper
+    turns those ingredients into evenly-cut pieces in seconds. Design a recipe in the first
+    tab, prep it with the chopper, and dinner is done.</p>
+
+  <h3>The Original Pro Chopper</h3>
+  <ul>
+    <li>Vegetable chopper, dicer, and spiralizer in one compact tool.</li>
+    <li>Heavy-duty, rust-resistant 420 stainless-steel blades that stay razor-sharp.</li>
+    <li>Large catch container so chopped veg lands ready to cook — no mess.</li>
+    <li>Dishwasher safe (top rack) for fast cleanup.</li>
+  </ul>
+
+  <a class="cta" href="{{amazon_url}}" target="_blank" rel="noopener noreferrer">
+    Get the Fullstar Vegetable Chopper on Amazon &rarr;</a>
+  <span class="cta-note">Opens the Amazon listing in a new tab.</span>
+</div>
 """
 
 TRUE = ("1", "true", "on")
+# Args that fully describe a generated recipe — carried as hidden fields on
+# the save form so the recipe can be regenerated server-side at save time.
+GEN_KEYS = ("seed", "seed2", "n", "model", "cuisine", "flavor", "aroma",
+            "nutrition", "processing", "factor", "intensity", "method",
+            "veg_only", "protein", "feculent", "vegan", "no_dairy", "no_nuts")
 
 
 def _recipe_from_args(args):
@@ -273,27 +435,93 @@ def _recipe_from_args(args):
     return recipe, None, m
 
 
-@app.route("/")
-def home():
-    recipe, error, _ = _recipe_from_args(request.args)
-    a = request.args
-    excludes = [e for e in ("vegan", "no_dairy", "no_nuts") if a.get(e) in TRUE]
-    return render_template_string(
-        PAGE, recipe=recipe, error=error,
+def _design_context(args, *, save_error=None, author_name=None,
+                    author_email=None, save_title=None):
+    """Build the full render context for the Design tab from a request mapping
+    (request.args on GET, request.form when re-rendering after a failed save)."""
+    recipe, error, _ = _recipe_from_args(args)
+    excludes = [e for e in ("vegan", "no_dairy", "no_nuts") if args.get(e) in TRUE]
+    gen_params = {k: args.get(k) for k in GEN_KEYS if (args.get(k) or "") != ""}
+    if author_name is None:
+        author_name = session.get("author_name", "")
+    if author_email is None:
+        author_email = session.get("author_email", "")
+    if save_title is None:
+        save_title = recipe["title"] if recipe else ""
+    return dict(
+        recipe=recipe, error=error,
         veg=VEG, veg_sample=VEG[::7][:120], cuisines=CUISINES, factors=FACTORS,
         flavors=FLAVORS, aromas=AROMAS, nutrition=NUTRITION, processing=PROCESSING,
         models=[(k, {"core": "Core (chem + recipe)", "cooc": "Cooc (recipe only)",
                      "chem": "Chem (chemistry only)"}[k]) for k in cr.SIBLINGS],
-        seed=a.get("seed", ""), seed2=a.get("seed2", ""),
-        n=int(a.get("n", 4)) if a.get("n", "4").isdigit() else 4,
-        model=a.get("model", "core"),
-        cuisine=a.get("cuisine", ""), flavor=a.get("flavor", ""), aroma=a.get("aroma", ""),
-        nutrition_v=a.get("nutrition", ""), processing_v=a.get("processing", ""),
-        factor=a.get("factor", ""),
-        intensity=int(a.get("intensity", 30)) if a.get("intensity", "30").isdigit() else 30,
-        method_v=a.get("method", "auto"),
-        veg_only=a.get("veg_only") in TRUE, protein=a.get("protein") in TRUE,
-        feculent=a.get("feculent") in TRUE, excludes=excludes)
+        seed=args.get("seed", ""), seed2=args.get("seed2", ""),
+        n=int(args.get("n", 4)) if args.get("n", "4").isdigit() else 4,
+        model=args.get("model", "core"),
+        cuisine=args.get("cuisine", ""), flavor=args.get("flavor", ""),
+        aroma=args.get("aroma", ""), nutrition_v=args.get("nutrition", ""),
+        processing_v=args.get("processing", ""), factor=args.get("factor", ""),
+        intensity=int(args.get("intensity", 30)) if args.get("intensity", "30").isdigit() else 30,
+        method_v=args.get("method", "auto"),
+        veg_only=args.get("veg_only") in TRUE, protein=args.get("protein") in TRUE,
+        feculent=args.get("feculent") in TRUE, excludes=excludes,
+        gen_params=gen_params, save_error=save_error,
+        author_name=author_name, author_email=author_email, save_title=save_title)
+
+
+@app.route("/")
+def home():
+    return render_page("design", DESIGN_BODY, **_design_context(request.args))
+
+
+@app.route("/save", methods=["POST"])
+def save():
+    form = request.form
+    recipe, error, _ = _recipe_from_args(form)
+    if not recipe:
+        # Can't regenerate the recipe (e.g. seed gone) — back to a clean form.
+        return redirect(url_for("home"))
+
+    name = (form.get("author_name") or "").strip()
+    email = (form.get("author_email") or "").strip()
+    title = (form.get("title") or "").strip()
+    save_error = None
+    if not name:
+        save_error = "Please enter your name."
+    elif not db.valid_email(email):
+        save_error = "Please enter a valid email address."
+    elif not title:
+        save_error = "Please give the recipe a title."
+
+    if save_error:
+        ctx = _design_context(form, save_error=save_error, author_name=name,
+                              author_email=email, save_title=title)
+        return render_page("design", DESIGN_BODY, **ctx)
+
+    # Remember the cook for next time, then persist and show the book.
+    session["author_name"] = name
+    session["author_email"] = email
+    db.save_recipe(name, email, title, recipe)
+    return redirect(url_for("recipes", saved=1))
+
+
+@app.route("/recipes")
+def recipes():
+    total = db.count_recipes()
+    pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
+    try:
+        page = int(request.args.get("page", 1))
+    except ValueError:
+        page = 1
+    page = max(1, min(page, pages))
+    items = db.list_recipes(page=page, per_page=PER_PAGE)
+    return render_page("recipes", RECIPES_BODY, recipes=items, total=total,
+                       page=page, pages=pages,
+                       saved=request.args.get("saved") in TRUE)
+
+
+@app.route("/about")
+def about():
+    return render_page("about", ABOUT_BODY, amazon_url=AMAZON_URL)
 
 
 @app.route("/healthz")

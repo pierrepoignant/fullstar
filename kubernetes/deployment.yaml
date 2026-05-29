@@ -24,6 +24,10 @@ spec:
           ports:
             - containerPort: 5000
           envFrom:
+            # Projected from the FULLSTAR_SECRETS_JSON GitHub secret by the
+            # deploy workflow. Provides SECRET_KEY (Flask session signing) and
+            # the OVH managed-MySQL connection: DATABASE_OVH__HOST / __PORT /
+            # __USER / __PASSWORD / __NAME.
             - secretRef:
                 name: epicure-secrets
           resources:
