@@ -172,6 +172,12 @@ HEAD = """
    font-weight:700;border-radius:12px;text-decoration:none;transition:.15s}
  .cta:hover{background:var(--coral-dark)}
  .cta-note{display:block;margin-top:8px;color:var(--muted);font-size:.78rem}
+ .terms-date{color:var(--muted);font-size:.8rem;margin-top:18px}
+ .sitefoot{border-top:1px solid var(--line);background:var(--white);margin-top:14px}
+ .sitefoot .wrap{padding:22px 20px;color:var(--muted);font-size:.78rem;line-height:1.5;
+   display:flex;gap:6px 14px;flex-wrap:wrap;align-items:baseline;justify-content:center;text-align:center}
+ .sitefoot a{color:var(--coral-dark);font-weight:600;text-decoration:none}
+ .sitefoot a:hover{text-decoration:underline}
 </style></head><body>
 
 <div class="nav"><div class="wrap">
@@ -188,6 +194,16 @@ HEAD = """
 </div></div>
 """
 
+FOOT = """
+<footer class="sitefoot"><div class="wrap">
+  <a href="/terms">Terms of Service</a>
+  <span>Recipe recommendations are powered in part by the
+    <a href="https://huggingface.co/Kaikaku/epicure-core" target="_blank" rel="noopener noreferrer">Epicure</a>
+    ingredient embeddings developed by Jakub Radzikowski and Josef Chen (KAIKAKU.AI), licensed under
+    <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>.</span>
+</div></footer>
+"""
+
 TAIL = "</body></html>"
 
 _TABS = [("design", "Design recipe", "/"),
@@ -200,7 +216,7 @@ def render_page(active, content, **ctx):
         f'<a class="{"active" if key == active else ""}" href="{href}">{label}</a>'
         for key, label, href in _TABS)
     tabbar = f'<div class="tabs"><div class="wrap">{tabs}</div></div>'
-    full = HEAD + tabbar + '<div class="wrap">' + content + "</div>" + TAIL
+    full = HEAD + tabbar + '<div class="wrap">' + content + "</div>" + FOOT + TAIL
     return render_template_string(full, **ctx)
 
 
@@ -413,6 +429,58 @@ ABOUT_BODY = """
 </div>
 """
 
+# --- Terms of Service ------------------------------------------------------
+TERMS_BODY = """
+<div class="panel about terms">
+  <h2>Terms of Service</h2>
+  <p class="lede">Please read these terms before using the Fullstar Recipe Studio.</p>
+
+  <h3>1. The service</h3>
+  <p>Fullstar Recipe Studio is a free tool that suggests ingredient pairings and simple
+    recipes to help you cook with your vegetable chopper. Recipes are generated
+    automatically and are provided for general informational purposes only.</p>
+
+  <h3>2. AI-generated recommendations</h3>
+  <p>Recipe recommendations are produced by an AI model and may be imperfect, incomplete,
+    or unsuitable for your circumstances. You are responsible for making sure ingredients
+    are safe for you to eat &mdash; including allergies, intolerances, dietary needs, and
+    proper food handling and cooking. The suggestions are not nutritional, medical, or
+    food-safety advice.</p>
+
+  <h3>3. Saved recipes &amp; your data</h3>
+  <p>When you save a recipe you provide a name and email address, which are stored with the
+    recipe and shown publicly in the shared recipe book alongside recipes saved by other
+    visitors. Please do not submit anything you would not want to be publicly visible.</p>
+
+  <h3>4. Attribution &amp; licensing</h3>
+  <p>Recipe recommendations are powered in part by the
+    <a href="https://huggingface.co/Kaikaku/epicure-core" target="_blank" rel="noopener noreferrer">Epicure</a>
+    ingredient embeddings developed by Jakub Radzikowski and Josef Chen (KAIKAKU.AI),
+    licensed under
+    <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>.
+    The model and its methodology are described in
+    <a href="https://arxiv.org/html/2605.22391v1" target="_blank" rel="noopener noreferrer">arXiv:2605.22391</a>.
+    Use of the Epicure embeddings through this site remains subject to the terms of the
+    CC BY 4.0 license, and no endorsement by the authors is implied.</p>
+
+  <h3>5. No warranty</h3>
+  <p>The service is provided &ldquo;as is&rdquo; and &ldquo;as available&rdquo;, without
+    warranties of any kind, express or implied. We do not guarantee that it will be accurate,
+    uninterrupted, or error-free.</p>
+
+  <h3>6. Limitation of liability</h3>
+  <p>To the maximum extent permitted by law, Fullstar and its contributors are not liable for
+    any loss or damage arising from your use of the service or your reliance on any recipe it
+    generates.</p>
+
+  <h3>7. Changes to these terms</h3>
+  <p>We may update these terms from time to time. Continued use of the service after an update
+    takes effect constitutes acceptance of the revised terms.</p>
+
+  <p class="terms-date">Last updated 29 May 2026.</p>
+</div>
+"""
+
 TRUE = ("1", "true", "on")
 # Args that fully describe a generated recipe — carried as hidden fields on
 # the save form so the recipe can be regenerated server-side at save time.
@@ -551,6 +619,11 @@ def recipes():
 @app.route("/about")
 def about():
     return render_page("about", ABOUT_BODY, amazon_url=AMAZON_URL)
+
+
+@app.route("/terms")
+def terms():
+    return render_page("terms", TERMS_BODY)
 
 
 @app.route("/healthz")
