@@ -106,9 +106,6 @@ PAGE = """
  .steps{color:var(--muted);font-size:.96rem}
  .err{background:#fff0f0;border:1px solid var(--coral);color:var(--coral-dark);
    border-radius:12px;padding:14px 16px;margin-bottom:24px;font-size:.95rem}
- .foot{color:var(--muted);font-size:.8rem;text-align:center;padding:6px 0 40px}
- .foot code{background:var(--white);border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-size:.78rem}
- .foot .repr{display:block;margin-top:6px;font-size:.72rem;opacity:.7}
 </style></head><body>
 
 <div class="nav"><div class="wrap">
@@ -215,11 +212,6 @@ PAGE = """
   </div>
 </div>
 {% endif %}
-
-<div class="foot">
-  JSON API &middot; <code>/api/recipe?seed=carrot&amp;flavor=spicier&amp;intensity=40&amp;protein=1</code>
-  <span class="repr">{{repr}}</span>
-</div>
 </div>
 
 <script>
@@ -287,7 +279,7 @@ def home():
     a = request.args
     excludes = [e for e in ("vegan", "no_dairy", "no_nuts") if a.get(e) in TRUE]
     return render_template_string(
-        PAGE, recipe=recipe, error=error, repr=str(MODEL),
+        PAGE, recipe=recipe, error=error,
         veg=VEG, veg_sample=VEG[::7][:120], cuisines=CUISINES, factors=FACTORS,
         flavors=FLAVORS, aromas=AROMAS, nutrition=NUTRITION, processing=PROCESSING,
         models=[(k, {"core": "Core (chem + recipe)", "cooc": "Cooc (recipe only)",
