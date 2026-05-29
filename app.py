@@ -329,8 +329,8 @@ DESIGN_BODY = """
   <div class="row">
     <div class="field"><label class="lbl" for="author_name">Your name</label>
       <input type="text" id="author_name" name="author_name" value="{{author_name}}" placeholder="Jane Cook" required></div>
-    <div class="field"><label class="lbl" for="author_email">Your email</label>
-      <input type="email" id="author_email" name="author_email" value="{{author_email}}" placeholder="jane@example.com" required></div>
+    <div class="field"><label class="lbl" for="author_email">Your email <span class="fit">(optional)</span></label>
+      <input type="email" id="author_email" name="author_email" value="{{author_email}}" placeholder="jane@example.com"></div>
   </div>
   <div class="field" style="margin-top:14px"><label class="lbl" for="title">Recipe title</label>
     <input type="text" id="title" name="title" value="{{save_title}}" required></div>
@@ -645,7 +645,7 @@ def save():
     save_error = None
     if not name:
         save_error = "Please enter your name."
-    elif not db.valid_email(email):
+    elif email and not db.valid_email(email):  # email is optional, but validate if given
         save_error = "Please enter a valid email address."
     elif not title:
         save_error = "Please give the recipe a title."
