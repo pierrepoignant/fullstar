@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.env
+fullstar.json
+*.json
+.DS_Store
+*.md
+kubernetes/
+.github/
