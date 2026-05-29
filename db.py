@@ -119,31 +119,42 @@ def save_recipe(author_name, author_email, title, recipe):
         conn.close()
 
 
-def count_recipes():
+def count_recipes(author_email=None):
     _ensure_init()
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS cnt FROM recipes")
+            if author_email:
+                cur.execute("SELECT COUNT(*) AS cnt FROM recipes WHERE author_email=%s",
+                            (author_email,))
+            else:
+                cur.execute("SELECT COUNT(*) AS cnt FROM recipes")
             return cur.fetchone()["cnt"]
     finally:
         conn.close()
 
 
-def list_recipes(page=1, per_page=50):
+def list_recipes(page=1, per_page=50, author_email=None):
     """Saved recipes, newest first, one page at a time.
 
-    Each item is the stored recipe dict augmented with the user's title,
-    author name, formatted timestamp and row id.
+    Pass ``author_email`` to return only that cook's recipes (the "My recipes"
+    filter); omit it to return everyone's. Each item is the stored recipe dict
+    augmented with the user's title, author name, formatted timestamp and id.
     """
     _ensure_init()
     offset = max(0, (page - 1) * per_page)
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM recipes ORDER BY id DESC LIMIT %s OFFSET %s",
-                (per_page, offset))
+            if author_email:
+                cur.execute(
+                    "SELECT * FROM recipes WHERE author_email=%s"
+                    " ORDER BY id DESC LIMIT %s OFFSET %s",
+                    (author_email, per_page, offset))
+            else:
+                cur.execute(
+                    "SELECT * FROM recipes ORDER BY id DESC LIMIT %s OFFSET %s",
+                    (per_page, offset))
             rows = cur.fetchall()
     finally:
         conn.close()

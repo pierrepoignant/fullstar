@@ -75,6 +75,10 @@ HEAD = """
  .hero h1 .accent{color:var(--coral)}
  .hero p{margin:0 auto;max-width:500px;color:rgba(255,255,255,.94);font-size:1.05rem;
    text-shadow:0 1px 10px rgba(0,0,0,.4)}
+ .hero .powered{margin:10px auto 0;max-width:520px;color:rgba(255,255,255,.92);font-size:.92rem;
+   text-shadow:0 1px 8px rgba(0,0,0,.4)}
+ .hero .powered b{color:var(--coral);font-weight:700}
+ .hero .powered a{color:var(--coral);font-weight:700;text-decoration:underline;text-underline-offset:2px}
  .trust{margin-top:14px;font-size:.76rem;color:rgba(255,255,255,.82);
    text-transform:uppercase;letter-spacing:.08em;text-shadow:0 1px 8px rgba(0,0,0,.4)}
  .tabs{background:var(--white);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
@@ -141,6 +145,12 @@ HEAD = """
  .saved-meta{color:var(--muted);font-size:.78rem;margin:4px 0 6px}
  .empty{color:var(--muted);font-size:.95rem}
  .empty a{color:var(--coral-dark);font-weight:700}
+ .filterbar{display:flex;gap:8px;margin-bottom:18px}
+ .fbtn{font-size:.85rem;font-weight:600;color:var(--muted);text-decoration:none;
+   background:var(--bg);border:1.5px solid var(--line);border-radius:999px;padding:8px 16px;transition:.15s}
+ .fbtn:hover{border-color:#d9dbe3;color:var(--ink)}
+ .fbtn.on{background:#fff0f0;border-color:var(--coral);color:var(--coral-dark)}
+ .fbtn.disabled{opacity:.5;cursor:not-allowed}
  .pager{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:20px;font-size:.9rem}
  .pager a{color:var(--coral-dark);text-decoration:none;font-weight:700;
    border:1.5px solid var(--line);border-radius:10px;padding:8px 14px}
@@ -172,6 +182,7 @@ HEAD = """
 <div class="hero"><div class="wrap">
   <h1>Cooking Made <span class="accent">Simple</span></h1>
   <p>Chop a few ingredients, add a sauce, and cook. Pairings picked by a food-flavor AI &mdash; built for your vegetable chopper.</p>
+  <p class="powered">Powered by <a href="https://huggingface.co/Kaikaku/epicure-core" target="_blank" rel="noopener noreferrer">Epicure</a>, an AI food model trained on <b>4.14M recipes</b>.</p>
   <div class="trust">Designed for real home cooks</div>
 </div></div>
 """
@@ -321,10 +332,22 @@ function surprise(){
 # --- Tab 2: View recipes ---------------------------------------------------
 RECIPES_BODY = """
 <div class="panel">
-  <div class="sec">Recipe book{% if total %} &middot; {{total}} saved{% endif %}</div>
+  <div class="sec">{% if mine %}Your recipes{% else %}Recipe book{% endif %}{% if total %} &middot; {{total}} saved{% endif %}</div>
   {% if saved %}<div class="ok">Recipe saved to the book. 🎉</div>{% endif %}
+  <div class="filterbar">
+    <a class="fbtn {{'on' if not mine}}" href="/recipes">Everyone's recipes</a>
+    {% if has_email %}
+      <a class="fbtn {{'on' if mine}}" href="/recipes?mine=1">My recipes</a>
+    {% else %}
+      <span class="fbtn disabled" title="Save a recipe first to filter by yours">My recipes</span>
+    {% endif %}
+  </div>
   {% if total == 0 %}
+    {% if mine %}
+    <p class="empty">You haven't saved any recipes yet. Head to <a href="/">Design recipe</a> to create one.</p>
+    {% else %}
     <p class="empty">No recipes saved yet. Head to <a href="/">Design recipe</a> to create your first one.</p>
+    {% endif %}
   {% endif %}
   {% for r in recipes %}
   <article class="saved">
@@ -339,9 +362,9 @@ RECIPES_BODY = """
   {% endfor %}
   {% if pages > 1 %}
   <div class="pager">
-    {% if page > 1 %}<a href="/recipes?page={{page-1}}">&larr; Newer</a>{% endif %}
+    {% if page > 1 %}<a href="/recipes?page={{page-1}}{% if mine %}&mine=1{% endif %}">&larr; Newer</a>{% endif %}
     <span class="muted">Page {{page}} of {{pages}}</span>
-    {% if page < pages %}<a href="/recipes?page={{page+1}}">Older &rarr;</a>{% endif %}
+    {% if page < pages %}<a href="/recipes?page={{page+1}}{% if mine %}&mine=1{% endif %}">Older &rarr;</a>{% endif %}
   </div>
   {% endif %}
 </div>
@@ -506,16 +529,21 @@ def save():
 
 @app.route("/recipes")
 def recipes():
-    total = db.count_recipes()
+    my_email = session.get("author_email") or ""
+    # "My recipes" filter only applies if we know who the cook is (they've
+    # saved at least once this session); otherwise fall back to everyone's.
+    mine = request.args.get("mine") in TRUE and bool(my_email)
+    author_email = my_email if mine else None
+    total = db.count_recipes(author_email=author_email)
     pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
     try:
         page = int(request.args.get("page", 1))
     except ValueError:
         page = 1
     page = max(1, min(page, pages))
-    items = db.list_recipes(page=page, per_page=PER_PAGE)
+    items = db.list_recipes(page=page, per_page=PER_PAGE, author_email=author_email)
     return render_page("recipes", RECIPES_BODY, recipes=items, total=total,
-                       page=page, pages=pages,
+                       page=page, pages=pages, mine=mine, has_email=bool(my_email),
                        saved=request.args.get("saved") in TRUE)
 
 
