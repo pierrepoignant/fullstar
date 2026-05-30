@@ -203,6 +203,8 @@ HEAD = """
  .stats-table tbody tr:last-child td{border-bottom:none}
  .stats-table th:not(:first-child),.stats-table td:not(:first-child){text-align:right;
    font-variant-numeric:tabular-nums}
+ .stats-table.txt th,.stats-table.txt td{text-align:left;font-variant-numeric:normal;
+   vertical-align:top;font-size:.86rem}
  .sitefoot{border-top:1px solid var(--line);background:var(--white);margin-top:14px}
  .sitefoot .wrap{padding:22px 20px;color:var(--muted);font-size:.78rem;line-height:1.5;
    display:flex;gap:6px 14px;flex-wrap:wrap;align-items:baseline;justify-content:center;text-align:center}
@@ -535,6 +537,30 @@ STATS_BODY = """
     </tbody>
   </table>
   {% else %}<p class="empty">No page views recorded yet.</p>{% endif %}
+
+  <h3>Generated recipes ({{gen_total}})</h3>
+  {% if generated %}
+  <table class="stats-table txt">
+    <thead><tr><th>When (UTC)</th><th>Src</th><th>Recipe</th><th>Ingredients &amp; sauce</th></tr></thead>
+    <tbody>
+    {% for g in generated %}
+      <tr>
+        <td>{{g.created_at}}</td>
+        <td>{{g.source}}</td>
+        <td>{{g.recipe.title}}</td>
+        <td>{{g.recipe.ingredients|join(', ')}}{% if g.recipe.sauce and g.recipe.sauce != '—' %} &middot; <span class="sauce">{{g.recipe.sauce}}</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if gpages > 1 %}
+  <div class="pager">
+    {% if gpage > 1 %}<a href="/stats?gpage={{gpage-1}}">&larr; Newer</a>{% endif %}
+    <span class="muted">Page {{gpage}} of {{gpages}}</span>
+    {% if gpage < gpages %}<a href="/stats?gpage={{gpage+1}}">Older &rarr;</a>{% endif %}
+  </div>
+  {% endif %}
+  {% else %}<p class="empty">No recipes generated yet.</p>{% endif %}
 </div>
 """
 
@@ -630,6 +656,13 @@ def _track(kind, path=None):
         pass  # tracking must never affect the user-facing response
 
 
+def _save_generated(source, params, recipe):
+    try:
+        db.save_generated(source, params, recipe)
+    except Exception:
+        pass  # analytics logging must never affect the response
+
+
 @app.before_request
 def _track_request():
     if request.method != "GET":
@@ -648,6 +681,7 @@ def home():
     ctx = _design_context(request.args)
     if ctx["recipe"] is not None:
         _track("recipe_generated", "/")
+        _save_generated("web", ctx["gen_params"], ctx["recipe"])
     return render_page("design", DESIGN_BODY, **ctx)
 
 
@@ -755,6 +789,8 @@ def api_recipe():
     if not recipe:
         return jsonify(error="missing ?seed="), 400
     _track("recipe_generated", "/api/recipe")
+    _save_generated("api", {k: request.args.get(k) for k in GEN_KEYS
+                            if (request.args.get(k) or "") != ""}, recipe)
     return jsonify(recipe)
 
 
@@ -776,8 +812,18 @@ def stats():
                ("Page views", by_kind.get("pageview", blank)),
                ("Recipes generated", by_kind.get("recipe_generated", blank)),
                ("Recipes saved", by_kind.get("recipe_saved", blank))]
+    # Paginated log of every generated recipe (analytics).
+    gen_total = db.count_generated()
+    gpages = max(1, (gen_total + PER_PAGE - 1) // PER_PAGE)
+    try:
+        gpage = int(request.args.get("gpage", 1))
+    except ValueError:
+        gpage = 1
+    gpage = max(1, min(gpage, gpages))
+    generated = db.list_generated(page=gpage, per_page=PER_PAGE)
     return render_page("stats", STATS_BODY, metrics=metrics, top_paths=top_paths,
-                       total_recipes=db.count_recipes())
+                       total_recipes=db.count_recipes(), generated=generated,
+                       gen_total=gen_total, gpage=gpage, gpages=gpages)
 
 
 if __name__ == "__main__":

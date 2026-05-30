@@ -97,6 +97,15 @@ def init_db():
                      KEY idx_kind (kind),
                      KEY idx_created (created_at)
                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS generated_recipes(
+                     id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+                     created_at  DATETIME    NOT NULL,
+                     source      VARCHAR(16) NOT NULL,
+                     params_json LONGTEXT    NULL,
+                     recipe_json LONGTEXT    NOT NULL,
+                     KEY idx_created (created_at)
+                   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
     finally:
         conn.close()
     _initialized = True
@@ -223,3 +232,57 @@ def stats_summary(top_paths=10):
     finally:
         conn.close()
     return by_kind, paths
+
+
+# --- Generated-recipe log (analytics; distinct from the saved recipe book) --
+def save_generated(source, params, recipe):
+    """Persist a generated recipe for analytics. ``source`` is e.g. 'web' or
+    'api', ``params`` is the dict of steering args, ``recipe`` the result dict."""
+    _ensure_init()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO generated_recipes(created_at,source,params_json,recipe_json)"
+                " VALUES(%s,%s,%s,%s)",
+                (now, source, json.dumps(params or {}), json.dumps(recipe)))
+    finally:
+        conn.close()
+
+
+def count_generated():
+    _ensure_init()
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS cnt FROM generated_recipes")
+            return cur.fetchone()["cnt"]
+    finally:
+        conn.close()
+
+
+def list_generated(page=1, per_page=50):
+    """Generated recipes, newest first, one page at a time. Each item has
+    created_at, source, params (dict), recipe (dict) and id."""
+    _ensure_init()
+    offset = max(0, (page - 1) * per_page)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM generated_recipes ORDER BY id DESC LIMIT %s OFFSET %s",
+                (per_page, offset))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    out = []
+    for row in rows:
+        out.append({
+            "id": row["id"],
+            "created_at": row["created_at"],
+            "source": row["source"],
+            "params": json.loads(row["params_json"]) if row["params_json"] else {},
+            "recipe": json.loads(row["recipe_json"]),
+        })
+    return out
