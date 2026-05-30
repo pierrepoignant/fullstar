@@ -45,6 +45,8 @@ except Exception as e:  # MySQL may not be reachable yet; table is created lazil
 print(f"Ready: {MODEL} | {len(VEG)} items, {len(CUISINES)} cuisines, {len(FACTORS)} factor modes")
 
 AMAZON_URL = "https://www.amazon.com/Vegetable-Chopper-Spiralizer-Slicer-Choppers/dp/B0764HS4SL"
+# Canonical public URL, used in robots.txt / sitemap.xml (override via SITE_URL).
+SITE_URL = os.environ.get("SITE_URL", "https://fullstar.cloud")
 PER_PAGE = 50
 
 # --- Shared chrome: head/styles, top nav, hero banner, tab bar -------------
@@ -52,6 +54,8 @@ HEAD = """
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Fullstar Recipe Studio</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="apple-touch-icon" href="/static/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet">
@@ -616,7 +620,7 @@ def _design_context(args, *, save_error=None, author_name=None,
 # --- Usage tracking (best-effort; never breaks a page) ---------------------
 # Requests we never count as a page view: probes, the stats dashboard itself,
 # static assets and the JSON API (generations there are tracked explicitly).
-_NO_TRACK = ("/healthz", "/stats", "/favicon.ico")
+_NO_TRACK = ("/healthz", "/stats", "/favicon.ico", "/robots.txt", "/sitemap.xml")
 
 
 def _track(kind, path=None):
@@ -707,6 +711,35 @@ def about():
 @app.route("/terms")
 def terms():
     return render_page("terms", TERMS_BODY)
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return redirect("/static/favicon.svg")
+
+
+@app.route("/robots.txt")
+def robots():
+    body = ("User-agent: *\n"
+            "Allow: /\n"
+            "Disallow: /stats\n"
+            "Disallow: /save\n"
+            "Disallow: /api/\n"
+            "\n"
+            f"Sitemap: {SITE_URL}/sitemap.xml\n")
+    return Response(body, mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap():
+    pages = ["/", "/recipes", "/about", "/terms"]
+    urls = "".join(
+        f"<url><loc>{SITE_URL}{p}</loc><changefreq>weekly</changefreq></url>"
+        for p in pages)
+    xml = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+           f"{urls}</urlset>\n")
+    return Response(xml, mimetype="application/xml")
 
 
 @app.route("/healthz")
