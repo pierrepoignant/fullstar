@@ -100,6 +100,22 @@ HEAD = """
  .field{flex:1;min-width:140px}
  label.lbl{display:block;font-size:.72rem;font-weight:500;text-transform:uppercase;
    letter-spacing:.05em;color:var(--muted);margin-bottom:6px}
+ /* Desktop-only help tooltips: hidden where the device can't hover (touch). */
+ .help{display:none}
+ @media (hover:hover) and (pointer:fine){
+   .help{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+     margin-left:5px;border-radius:50%;background:var(--line);color:var(--muted);
+     font-size:.64rem;font-weight:700;cursor:help;position:relative;vertical-align:middle;
+     text-transform:none;letter-spacing:0;transition:.15s}
+   .help:hover,.help:focus{background:var(--coral);color:#fff;outline:none}
+   .help .tip{display:none;position:absolute;left:50%;bottom:150%;transform:translateX(-50%);
+     width:220px;background:var(--ink);color:#fff;font-size:.72rem;font-weight:400;line-height:1.45;
+     text-transform:none;letter-spacing:0;padding:9px 11px;border-radius:8px;text-align:left;
+     box-shadow:0 6px 20px rgba(31,30,30,.22);z-index:30;pointer-events:none;white-space:normal}
+   .help:hover .tip,.help:focus .tip{display:block}
+   .help .tip::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);
+     border:5px solid transparent;border-top-color:var(--ink)}
+ }
  input[type=text],input[type=email],select{width:100%;padding:11px 13px;font:inherit;font-size:.95rem;
    color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:11px;outline:none;transition:.15s}
  input[type=text]:focus,input[type=email]:focus,select:focus{border-color:var(--coral);background:var(--white)}
@@ -236,19 +252,19 @@ DESIGN_BODY = """
   <div class="sec">The basics</div>
   <div class="row">
     <div class="field" style="flex:2">
-      <label class="lbl" for="seed">Star ingredient</label>
+      <label class="lbl" for="seed">Star ingredient<span class="help" tabindex="0">?<span class="tip">The main ingredient your recipe is built around. Type to autocomplete from the model's vocabulary.</span></span></label>
       <input type="text" id="seed" name="seed" list="veg" value="{{seed}}" placeholder="e.g. carrot" autocomplete="off">
     </div>
     <div class="field" style="flex:2">
-      <label class="lbl" for="seed2">Blend with (optional)</label>
+      <label class="lbl" for="seed2">Blend with (optional)<span class="help" tabindex="0">?<span class="tip">An optional second ingredient to blend in, so pairings lean toward both.</span></span></label>
       <input type="text" id="seed2" name="seed2" list="veg" value="{{seed2}}" placeholder="e.g. ginger" autocomplete="off">
     </div>
     <div class="field">
-      <label class="lbl" for="n">Ingredients</label>
+      <label class="lbl" for="n">Ingredients<span class="help" tabindex="0">?<span class="tip">Total number of ingredients to chop, including your star ingredient (3–10).</span></span></label>
       <select id="n" name="n">{% for i in range(3,11) %}<option value="{{i}}" {{'selected' if i==n}}>{{i}}</option>{% endfor %}</select>
     </div>
     <div class="field">
-      <label class="lbl" for="model">Model</label>
+      <label class="lbl" for="model">Model<span class="help" tabindex="0">?<span class="tip">Which Epicure embedding to use — Core mixes food chemistry with recipe co-occurrence; Cooc is recipe co-occurrence only; Chem is chemistry only.</span></span></label>
       <select id="model" name="model">
         {% for k,desc in models %}<option value="{{k}}" {{'selected' if k==model}}>{{desc}}</option>{% endfor %}
       </select>
@@ -258,34 +274,34 @@ DESIGN_BODY = """
 
   <div class="sec t2">Steer the flavor</div>
   <div class="row">
-    <div class="field"><label class="lbl">Cuisine</label>
+    <div class="field"><label class="lbl">Cuisine<span class="help" tabindex="0">?<span class="tip">Nudge the ingredient pairings toward a cuisine's typical flavors.</span></span></label>
       <select name="cuisine"><option value="">Any</option>
       {% for c in cuisines %}<option value="{{c}}" {{'selected' if c==cuisine}}>{{c.split(':')[1].replace('_',' ')}}</option>{% endfor %}</select></div>
-    <div class="field"><label class="lbl">Taste</label>
+    <div class="field"><label class="lbl">Taste<span class="help" tabindex="0">?<span class="tip">Shift the taste profile, e.g. sweeter, spicier or more umami.</span></span></label>
       <select name="flavor"><option value="">&mdash;</option>
       {% for x in flavors %}<option value="{{x}}" {{'selected' if x==flavor}}>{{x}}</option>{% endfor %}</select></div>
-    <div class="field"><label class="lbl">Aroma</label>
+    <div class="field"><label class="lbl">Aroma<span class="help" tabindex="0">?<span class="tip">Shift the aromatic character, e.g. citrusy, herbal or earthy.</span></span></label>
       <select name="aroma"><option value="">&mdash;</option>
       {% for x in aromas %}<option value="{{x}}" {{'selected' if x==aroma}}>{{x}}</option>{% endfor %}</select></div>
   </div>
   <div class="row" style="margin-top:14px">
-    <div class="field"><label class="lbl">Nutrition</label>
+    <div class="field"><label class="lbl">Nutrition<span class="help" tabindex="0">?<span class="tip">Steer toward a nutrition goal, e.g. high-protein, high-fiber or lighter.</span></span></label>
       <select name="nutrition"><option value="">&mdash;</option>
       {% for x in nutrition %}<option value="{{x}}" {{'selected' if x==nutrition_v}}>{{x}}</option>{% endfor %}</select></div>
-    <div class="field"><label class="lbl">Processing</label>
+    <div class="field"><label class="lbl">Processing<span class="help" tabindex="0">?<span class="tip">Favor whole &amp; fresh ingredients, or lean toward more processed ones.</span></span></label>
       <select name="processing"><option value="">&mdash;</option>
       {% for x in processing %}<option value="{{x}}" {{'selected' if x==processing_v}}>{{x}}</option>{% endfor %}</select></div>
-    <div class="field"><label class="lbl">Emergent factor mode</label>
+    <div class="field"><label class="lbl">Emergent factor mode<span class="help" tabindex="0">?<span class="tip">Steer along one of the flavor dimensions the model discovered on its own.</span></span></label>
       <select name="factor"><option value="">&mdash;</option>
       {% for mid,lab in factors %}<option value="factor:{{mid}}" {{'selected' if ('factor:'+mid)==factor}}>{{lab}}</option>{% endfor %}</select></div>
   </div>
   <div class="field" style="margin-top:16px">
-    <label class="lbl" for="intensity">Steer intensity — {{intensity}}&deg; <span class="fit">(subtle &rarr; bold)</span></label>
+    <label class="lbl" for="intensity">Steer intensity — {{intensity}}&deg; <span class="fit">(subtle &rarr; bold)</span><span class="help" tabindex="0">?<span class="tip">How strongly the steers above are applied — subtle near 0&deg;, bold near 60&deg;. At 0&deg; the steers are off.</span></span></label>
     <input type="range" id="intensity" name="intensity" min="0" max="60" step="5" value="{{intensity}}"
       oninput="document.getElementById('iv').textContent=this.value">
   </div>
 
-  <div class="sec t2">Add-ons &amp; diet</div>
+  <div class="sec t2">Add-ons &amp; diet<span class="help" tabindex="0">?<span class="tip">Optional extras and dietary filters: add a protein or feculent, restrict to vegetables, or exclude animal products, dairy or nuts.</span></span></div>
   <div class="toggles">
     <label class="chip {{'on' if veg_only}}"><input type="checkbox" name="veg_only" value="1" {{'checked' if veg_only}}> Vegetables only</label>
     <label class="chip {{'on' if protein}}"><input type="checkbox" name="protein" value="1" {{'checked' if protein}}> Add protein</label>
@@ -295,7 +311,7 @@ DESIGN_BODY = """
     <label class="chip {{'on' if 'no_nuts' in excludes}}"><input type="checkbox" name="no_nuts" value="1" {{'checked' if 'no_nuts' in excludes}}> No nuts</label>
   </div>
   <div style="margin-top:16px">
-    <label class="lbl">Method</label>
+    <label class="lbl">Method<span class="help" tabindex="0">?<span class="tip">Auto picks salad vs cook from the chosen sauce; or force chop &amp; salad (raw) or chop &amp; cook.</span></span></label>
     <div class="seg">
       {% for val,txt in [('auto','Auto'),('salad','Chop & salad'),('cook','Chop & cook')] %}
       <label><input type="radio" name="method" value="{{val}}" {{'checked' if val==method_v}}><span>{{txt}}</span></label>
@@ -327,12 +343,12 @@ DESIGN_BODY = """
   <div class="sec">Save to your recipe book</div>
   {% if save_error %}<div class="err">{{save_error}}</div>{% endif %}
   <div class="row">
-    <div class="field"><label class="lbl" for="author_name">Your name</label>
+    <div class="field"><label class="lbl" for="author_name">Your name<span class="help" tabindex="0">?<span class="tip">Shown publicly next to your saved recipe in the recipe book.</span></span></label>
       <input type="text" id="author_name" name="author_name" value="{{author_name}}" placeholder="Jane Cook" required></div>
-    <div class="field"><label class="lbl" for="author_email">Your email <span class="fit">(optional)</span></label>
+    <div class="field"><label class="lbl" for="author_email">Your email <span class="fit">(optional)</span><span class="help" tabindex="0">?<span class="tip">Optional. Only used to group your recipes under the &lsquo;My recipes&rsquo; filter — it isn't shown publicly.</span></span></label>
       <input type="email" id="author_email" name="author_email" value="{{author_email}}" placeholder="jane@example.com"></div>
   </div>
-  <div class="field" style="margin-top:14px"><label class="lbl" for="title">Recipe title</label>
+  <div class="field" style="margin-top:14px"><label class="lbl" for="title">Recipe title<span class="help" tabindex="0">?<span class="tip">A name for your recipe as it will appear in the recipe book. Pre-filled from the generated title — edit it freely.</span></span></label>
     <input type="text" id="title" name="title" value="{{save_title}}" required></div>
   {% for k,v in gen_params.items() %}<input type="hidden" name="{{k}}" value="{{v}}">{% endfor %}
   <div class="btnrow"><button class="btn" type="submit">Save recipe</button></div>
